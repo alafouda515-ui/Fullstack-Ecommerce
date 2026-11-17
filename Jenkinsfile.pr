@@ -12,7 +12,7 @@ pipeline {
         IMAGE      = 'ecom-app-pr'
         CONTAINER  = "ecom-pr-${BUILD_NUMBER}"
         HOST_PORT  = '8081'
-        GIT_BASH   = '"C:\\Program Files\\Git\\bin\\bash.exe"'
+        GIT_BASH   = '"C:\\Program Files\\Git\\usr\\bin\\bash.exe"'
     }
 
     stages {
