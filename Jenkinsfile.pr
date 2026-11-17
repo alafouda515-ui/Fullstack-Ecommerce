@@ -13,6 +13,7 @@ pipeline {
         CONTAINER  = "ecom-pr-${BUILD_NUMBER}"
         HOST_PORT  = '8081'
         GIT_BASH   = '"C:\\Program Files\\Git\\usr\\bin\\bash.exe"'
+        PATH       = "C:\\Program Files\\Git\\ucrt64\\bin;${env.PATH}"
     }
 
     stages {
