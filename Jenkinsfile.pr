@@ -53,7 +53,7 @@ pipeline {
 
         stage('Smoke Test') {
             steps {
-                bat '%GIT_BASH% smoke_test.sh http://localhost:%HOST_PORT% reports/smoke_result.txt'
+                bat 'set "PATH=C:\\Program Files\\Git\\usr\\bin;%PATH%" && %GIT_BASH% smoke_test.sh http://localhost:%HOST_PORT% reports/smoke_result.txt'
             }
         }
 
