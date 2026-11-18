@@ -9,7 +9,7 @@ FAIL=0
 check() {
   local name="$1" path="$2" expected="$3"
   local code
-  code=$(curl -s -o /tmp/body.txt -w "%{http_code}" "$URL$path")
+  code=$(curl -s -o /tmp/body_$$.txt -w "%{http_code}" "$URL$path")
   if [ "$code" = "$expected" ]; then
     echo "[PASSED] $name ($path -> HTTP $code)" | tee -a "$OUT"
   else
@@ -28,7 +28,7 @@ check "Page d'accueil"       "/"            200
 check "Route SPA (cart)"     "/cart"        200
 check "Fichier index.html"   "/index.html"  200
 
-if grep -qi "<div id=\"root\"" /tmp/body.txt 2>/dev/null || curl -s "$URL" | grep -q 'id="root"'; then
+if grep -qi "<div id=\"root\"" /tmp/body_$$.txt 2>/dev/null || curl -s "$URL" | grep -q 'id="root"'; then
   echo "[PASSED] Contenu React (#root) present" | tee -a "$OUT"
 else
   echo "[FAILED] Contenu React (#root) absent" | tee -a "$OUT"
