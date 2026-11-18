@@ -1,0 +1,93 @@
+// Pipeline 1 : Build & Smoke sur Pull Request vers dev
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    environment {
+        IMAGE      = 'ecom-app-pr'
+        CONTAINER  = "ecom-pr-${BUILD_NUMBER}"
+        HOST_PORT  = '8081'
+        GIT_BASH   = '"C:\\Program Files\\Git\\usr\\bin\\bash.exe"'
+        PATH       = "C:\\Program Files\\Git\\ucrt64\\bin;${env.PATH}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                bat 'git log -1 --oneline'
+            }
+        }
+
+        stage('Setup') {
+            steps {
+                bat 'docker --version'
+                bat 'git --version'
+                bat 'if not exist reports mkdir reports'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                bat '''
+                docker build --build-arg NODE_VERSION=20 -t %IMAGE%:%BUILD_NUMBER% . > reports\\build.log 2>&1
+                set RC=%ERRORLEVEL%
+                type reports\\build.log
+                exit /b %RC%
+                '''
+            }
+        }
+
+        stage('Run (Docker)') {
+            steps {
+                bat 'docker run -d --name %CONTAINER% -p %HOST_PORT%:80 %IMAGE%:%BUILD_NUMBER%'
+                bat 'docker ps --filter name=%CONTAINER%'
+            }
+        }
+
+        stage('Smoke Test') {
+            steps {
+                bat 'set "PATH=C:\\Program Files\\Git\\usr\\bin;%PATH%" && %GIT_BASH% smoke_test.sh http://localhost:%HOST_PORT% reports/smoke_result.txt'
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                bat 'docker logs %CONTAINER% > reports\\container.log 2>&1'
+                writeFile file: 'reports/pipeline_report.txt', text: """Pipeline      : PR (Build & Smoke)
+Build         : #${env.BUILD_NUMBER}
+PR            : #${env.CHANGE_ID} (${env.CHANGE_BRANCH} -> ${env.CHANGE_TARGET})
+Statut        : SUCCESS
+"""
+                archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                bat 'docker rm -f %CONTAINER% || exit /b 0'
+            }
+        }
+    }
+
+    post {
+        failure {
+            // En cas d'echec : on garde quand meme les logs et on nettoie
+            bat 'if not exist reports mkdir reports'
+            bat 'docker logs %CONTAINER% > reports\\container.log 2>&1 || exit /b 0'
+            writeFile file: 'reports/pipeline_report.txt', text: """Pipeline      : PR (Build & Smoke)
+Build         : #${env.BUILD_NUMBER}
+PR            : #${env.CHANGE_ID} (${env.CHANGE_BRANCH} -> ${env.CHANGE_TARGET})
+Statut        : FAILED
+"""
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            bat 'docker rm -f %CONTAINER% || exit /b 0'
+        }
+    }
+}
