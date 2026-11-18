@@ -1,0 +1,134 @@
+// Pipeline 2 : Build complet sur push (branche dev)
+// Parallelisation : build / run / smoke pour Node 18 et Node 20
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    environment {
+        IMAGE    = 'ecom-app-dev'
+        GIT_BASH = '"C:\\Program Files\\Git\\usr\\bin\\bash.exe"'
+        PATH     = "C:\\Program Files\\Git\\ucrt64\\bin;${env.PATH}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                bat 'git log -1 --oneline'
+            }
+        }
+
+        stage('Setup') {
+            steps {
+                bat 'docker --version'
+                bat 'git --version'
+                bat 'if not exist reports mkdir reports'
+            }
+        }
+
+        stage('Build') {
+            parallel {
+                stage('Build Node 18') {
+                    steps {
+                        bat '''
+                        docker build --build-arg NODE_VERSION=18 -t %IMAGE%:node18-%BUILD_NUMBER% . > reports\\build-node18.log 2>&1
+                        set RC=%ERRORLEVEL%
+                        type reports\\build-node18.log
+                        exit /b %RC%
+                        '''
+                    }
+                }
+                stage('Build Node 20') {
+                    steps {
+                        bat '''
+                        docker build --build-arg NODE_VERSION=20 -t %IMAGE%:node20-%BUILD_NUMBER% . > reports\\build-node20.log 2>&1
+                        set RC=%ERRORLEVEL%
+                        type reports\\build-node20.log
+                        exit /b %RC%
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Run (Docker)') {
+            parallel {
+                stage('Run Node 18') {
+                    steps {
+                        bat 'docker run -d --name ecom-dev-n18-%BUILD_NUMBER% -p 8082:80 %IMAGE%:node18-%BUILD_NUMBER%'
+                    }
+                }
+                stage('Run Node 20') {
+                    steps {
+                        bat 'docker run -d --name ecom-dev-n20-%BUILD_NUMBER% -p 8083:80 %IMAGE%:node20-%BUILD_NUMBER%'
+                    }
+                }
+            }
+        }
+
+        stage('Smoke Test') {
+            parallel {
+                stage('Smoke Node 18') {
+                    steps {
+                        bat 'set "PATH=C:\\Program Files\\Git\\usr\\bin;%PATH%" && %GIT_BASH% smoke_test.sh http://localhost:8082 reports/smoke_node18.txt'
+                    }
+                }
+                stage('Smoke Node 20') {
+                    steps {
+                        bat 'set "PATH=C:\\Program Files\\Git\\usr\\bin;%PATH%" && %GIT_BASH% smoke_test.sh http://localhost:8083 reports/smoke_node20.txt'
+                    }
+                }
+            }
+        }
+
+        stage('Archive Artifacts') {
+            steps {
+                bat 'docker logs ecom-dev-n18-%BUILD_NUMBER% > reports\\container-node18.log 2>&1'
+                bat 'docker logs ecom-dev-n20-%BUILD_NUMBER% > reports\\container-node20.log 2>&1'
+                bat 'docker image ls %IMAGE% > reports\\images.txt 2>&1'
+                writeFile file: 'reports/pipeline_report.txt', text: """Pipeline      : DEV (Build complet, parallele Node 18 / Node 20)
+Build         : #${env.BUILD_NUMBER}
+Branche       : ${env.BRANCH_NAME}
+Commit        : ${env.GIT_COMMIT}
+Build Node 18 : PASSED
+Build Node 20 : PASSED
+Smoke Node 18 : PASSED
+Smoke Node 20 : PASSED
+Statut global : SUCCESS
+"""
+                archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                bat 'docker rm -f ecom-dev-n18-%BUILD_NUMBER% || exit /b 0'
+                bat 'docker rm -f ecom-dev-n20-%BUILD_NUMBER% || exit /b 0'
+            }
+        }
+    }
+
+    post {
+        failure {
+            // En cas d'echec : on garde les logs, on ecrit le rapport et on nettoie
+            bat 'if not exist reports mkdir reports'
+            bat 'docker logs ecom-dev-n18-%BUILD_NUMBER% > reports\\container-node18.log 2>&1 || exit /b 0'
+            bat 'docker logs ecom-dev-n20-%BUILD_NUMBER% > reports\\container-node20.log 2>&1 || exit /b 0'
+            writeFile file: 'reports/pipeline_report.txt', text: """Pipeline      : DEV (Build complet, parallele Node 18 / Node 20)
+Build         : #${env.BUILD_NUMBER}
+Branche       : ${env.BRANCH_NAME}
+Commit        : ${env.GIT_COMMIT}
+Statut global : FAILED (voir les logs build-*.log et smoke_*.txt)
+"""
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+            bat 'docker rm -f ecom-dev-n18-%BUILD_NUMBER% || exit /b 0'
+            bat 'docker rm -f ecom-dev-n20-%BUILD_NUMBER% || exit /b 0'
+        }
+    }
+}
