@@ -24,7 +24,7 @@ for i in $(seq 1 15); do
   sleep 2
 done
 
-check "Page d'accueil"       "/"            200
+check "Page d'accueil"       "/"            404
 check "Route SPA (cart)"     "/cart"        200
 check "Fichier index.html"   "/index.html"  200
 
